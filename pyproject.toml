@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cc-jupyter"
+version = "0.2.1"
+description = "Claude Code magic for IPython and Jupyter notebooks"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Vincent Yan" },
+    { name = "Rolv Erlend Bredesen" },
+]
+dependencies = [
+    "claude-agent-sdk>=0.1.0",
+    "ipython>=8.0.0",
+    "matplotlib",
+    "trio",
+]
+
+[project.optional-dependencies]
+cli = ["tyro>=0.9.0"]
+highlight = ["pygments"]
+
+[project.urls]
+Homepage = "https://github.com/rolveb/cc_jupyter"
+Repository = "https://github.com/rolveb/cc_jupyter"
+
+[tool.hatch.build]
+include = ["cc_jupyter.py"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+only-include = ["cc_jupyter.py"]
