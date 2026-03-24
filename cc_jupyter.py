@@ -1952,6 +1952,8 @@ _style_dir = Path(matplotlib.get_configdir()) / "stylelib"
 _style_dir.mkdir(parents=True, exist_ok=True)
 
 (_style_dir / "pretty_axes.mplstyle").write_text('''\\
+axes.spines.top: False
+axes.spines.right: False
 axes.linewidth: 2.0
 axes.edgecolor: 0.9
 xtick.major.width: 2.0
@@ -2060,6 +2062,26 @@ import matplotlib.colors as _mcolors
 _parula_cmap = _mcolors.LinearSegmentedColormap.from_list("parula", _parula_data)
 matplotlib.colormaps.register(_parula_cmap)
 matplotlib.colormaps.register(_parula_cmap.reversed())
+
+def pretty_axes(ax=None, spines=("left", "bottom"), spine_linewidth=None, spine_color=None, tick_linewidth=None, grid=None, legend_loc="outside upper right"):
+    # Style axes: show only selected spines, optionally set linewidth/color.
+    if not ax:
+        ax = plt.gca()
+    all_spines = ("top", "bottom", "left", "right")
+    visible = set(spines)
+    for sp in all_spines:
+        ax.spines[sp].set_visible(sp in visible)
+        if sp in visible:
+            if spine_linewidth is not None:
+                ax.spines[sp].set_linewidth(spine_linewidth)
+            if spine_color is not None:
+                ax.spines[sp].set_color(spine_color)
+    if tick_linewidth is not None:
+        ax.tick_params(width=tick_linewidth)
+    if grid is not None:
+        ax.grid(grid)
+    if legend_loc and ax.get_legend():
+        ax.legend(loc=legend_loc)
 
 # Glow effects (from mplcyberpunk by Dominik Haitz, MIT license)
 def make_lines_glow(ax=None, n_glow_lines=10, diff_linewidth=1.05, alpha_line=0.3, lines=None):
@@ -2300,8 +2322,6 @@ if __name__ == "__main__":
             "\n"
             "    ax.set_xlabel('x')\n"
             "    ax.set_ylabel('z', rotation=0, labelpad=10)\n"
-            "    ax.spines['top'].set_visible(False)\n"
-            "    ax.spines['right'].set_visible(False)\n"
             "\n"
             "    # thin colorbar\n"
             "    div = make_axes_locatable(ax)\n"
