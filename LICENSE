@@ -1,6 +1,12 @@
 MIT License
 
+Copyright (c) 2026 Vincent Yan
 Copyright (c) 2026 Rolv Erlend Bredesen
+
+This project includes modified code from:
+- jupyter-cc by Vincent Yan (https://github.com/vinceyyy/jupyter-cc)
+- notellm by Bryan Daniels
+- claude-code-jupyter-staging by Anthropic, PBC
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
