@@ -1563,12 +1563,15 @@ def load_ipython_extension(ipython: object) -> None:
     """
     if not isinstance(ipython, InteractiveShell):
         return
+    if getattr(ipython, '_cc_jupyter_loaded', False):
+        return
+    ipython._cc_jupyter_loaded = True
     cell_watcher = CellWatcher()
     magics = ClaudeJupyterMagics(ipython, cell_watcher)
     ipython.register_magics(magics)
     ipython.events.register("pre_run_cell", cell_watcher.pre_run_cell)
     ipython.events.register("post_run_cell", cell_watcher.post_run_cell)
-    print(HELP_TEXT)
+    print("cc_jupyter loaded — %cc <prompt> | %cc_new | %cc --help")
 
 
 # ---------------------------------------------------------------------------
@@ -1776,65 +1779,110 @@ def _run_self_test() -> None:
 
 
 TUTORIAL_TEXT = """\
-╔══════════════════════════════════════════════════════════════════════╗
-║                     cc_jupyter — Quick Tutorial                     ║
-╚══════════════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════════╗
+║                   cc_jupyter — Quick Tutorial                     ║
+╚════════════════════════════════════════════════════════════════════╝
 
-┌─ Debugging ──────────────────────────────────────────────────────────┐
-│                                                                      │
-│  %pdb on          Auto-enter debugger on any unhandled exception     │
-│  %debug           Post-mortem — inspect the frame after an error     │
-│  breakpoint()     Inline breakpoint in your code (Python 3.7+)      │
-│  %run -d file.py  Run a script under the debugger from the start    │
-│  %xmode Verbose   Show local variables in tracebacks                │
-│                                                                      │
-│  Tip: run  %pdb on  at session start — when Claude-generated code   │
-│  fails you'll land right in the frame to inspect variables.          │
-│                                                                      │
-│  Recommended packages:                                               │
-│    pdbpp   — drop-in pdb replacement with sticky mode & colors      │
-│    pudb    — full TUI debugger (source, vars, stack, breakpoints)   │
-│    ipdb    — pdb + IPython completion & highlighting                │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ Debugging ──────────────────────────────────────────────────────┐
+│                                                                  │
+│  %pdb on          Auto-enter debugger on unhandled exception     │
+│  %debug           Post-mortem — inspect the frame after error    │
+│  breakpoint()     Inline breakpoint in your code                 │
+│  %run -d file.py  Run a script under the debugger               │
+│  %xmode Verbose   Show local variables in tracebacks             │
+│                                                                  │
+│  Tip: run  %pdb on  at session start — when Claude-generated    │
+│  code fails you'll land right in the frame.                      │
+│                                                                  │
+│  Recommended: pdbpp, pudb, ipdb                                  │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 
-┌─ Matplotlib (sixel output enabled) ─────────────────────────────────┐
-│                                                                      │
-│  Plots render inline as sixel graphics in your terminal.             │
-│                                                                      │
-│  import matplotlib.pyplot as plt                                     │
-│  plt.plot([1, 2, 3], [1, 4, 9]); plt.title("test"); plt.show()     │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ Matplotlib (sixel output enabled) ─────────────────────────────┐
+│                                                                  │
+│  Plots render inline as sixel graphics in your terminal.         │
+│  plt.plot([1, 2, 3], [1, 4, 9]); plt.show()                    │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 
-┌─ Claude Code Magics ────────────────────────────────────────────────┐
-│                                                                      │
-│  %cc <prompt>          Ask Claude to generate code (one-line)        │
-│  %%cc                  Multi-line prompt to Claude                   │
-│  %cc_new / %ccn        Start a fresh conversation                   │
-│  %cc --model opus      Use a stronger model                         │
-│  %cc --import f.py     Add file context                             │
-│  %cc --help            All flags                                    │
-│                                                                      │
-│  Tip: end a %%cc multi-line block with a blank line (just Enter).   │
-│  If stuck, try Esc then Enter, or Ctrl+D on the empty ... line.     │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ Claude Code Magics ────────────────────────────────────────────┐
+│                                                                  │
+│  %cc <prompt>        Ask Claude to generate code (one-line)      │
+│  %%cc                Multi-line prompt to Claude                 │
+│  %cc_new / %ccn      Start a fresh conversation                 │
+│  %cc --model opus    Use a stronger model                       │
+│  %cc --import f.py   Add file context                           │
+│  %cc --help          All flags                                  │
+│                                                                  │
+│  Tip: end %%cc block with blank line or Ctrl+D.                 │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 """
 
 _MATPLOTLIB_SIXEL_SETUP = """\
+_SIXEL_SCALE = {sixel_scale}
 import matplotlib, io, subprocess, shutil
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backend_bases import _Backend, FigureManagerBase
 from matplotlib._pylab_helpers import Gcf
 
+def _terminal_size():
+    import fcntl, struct, termios
+    try:
+        data = fcntl.ioctl(1, termios.TIOCGWINSZ, bytes(8))
+        rows, cols, xpix, ypix = struct.unpack("HHHH", data)
+        if xpix > 0 and ypix > 0:
+            return rows, cols, xpix, ypix
+    except Exception:
+        pass
+    # Query pixel size via xterm escape sequence
+    import sys, os
+    if sys.stdin.isatty():
+        try:
+            old = termios.tcgetattr(sys.stdin)
+            import tty
+            tty.setcbreak(sys.stdin.fileno())
+            os.write(1, b"\\033[14t")
+            import select
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                resp = b""
+                while select.select([sys.stdin], [], [], 0.05)[0]:
+                    resp += os.read(sys.stdin.fileno(), 32)
+                # Response: ESC[4;<height>;<width>t
+                text = resp.decode(errors="ignore")
+                if ";" in text:
+                    parts = text.strip("\\033[4t").split(";")
+                    if len(parts) >= 2:
+                        ypix, xpix = int(parts[0]), int(parts[1].rstrip("t"))
+                        sz = shutil.get_terminal_size()
+                        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+                        return sz.lines, sz.columns, xpix, ypix
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+        except Exception:
+            pass
+    sz = shutil.get_terminal_size()
+    return sz.lines, sz.columns, 0, 0
+
 class _SixelManager(FigureManagerBase):
     def show(self):
         buf = io.BytesIO()
-        self.canvas.figure.savefig(buf, format="png", bbox_inches="tight")
+        self.canvas.figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
         buf.seek(0)
-        p = subprocess.Popen(["img2sixel"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        rows, cols, xpix, ypix = _terminal_size()
+        if xpix == 0 or ypix == 0:
+            xpix, ypix = cols * 9, rows * 18
+        max_h = int(ypix * _SIXEL_SCALE)
+        # Scale to terminal width; if that makes it too tall, scale to max height
+        fig_w, fig_h = self.canvas.figure.get_size_inches()
+        aspect = fig_h / fig_w
+        scaled_h = int(xpix * aspect)
+        if scaled_h <= max_h:
+            cmd = ["img2sixel", "-w", str(xpix)]
+        else:
+            cmd = ["img2sixel", "-h", str(max_h)]
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
         p.communicate(input=buf.getvalue())
+        print(flush=True)
 
 class _SixelCanvas(FigureCanvasAgg):
     manager_class = _SixelManager
@@ -1851,32 +1899,51 @@ class _BackendSixel(_Backend):
 
 matplotlib.use("module://__main__")
 import matplotlib.pyplot as plt
-if shutil.which("img2sixel"):
-    print("matplotlib backend: sixel (inline via img2sixel)")
-else:
+if not shutil.which("img2sixel"):
     print("WARNING: img2sixel not found — sudo apt install libsixel-bin")
+get_ipython().run_line_magic("load_ext", "cc_jupyter")
 """
 
 
-def _run_interactive_shell(*, tutorial: bool = False) -> None:
+def _run_interactive_shell(*, tutorial: bool = False, sixel_scale: float = 0.75, ipython_args: list[str] | None = None) -> None:
     """Launch an interactive IPython shell with cc_jupyter loaded and colors enabled."""
     from IPython import start_ipython
 
-    startup_code = _MATPLOTLIB_SIXEL_SETUP
+    startup_code = _MATPLOTLIB_SIXEL_SETUP.replace("{sixel_scale}", str(sixel_scale))
     if tutorial:
         # Print tutorial before the matplotlib setup
         startup_code = f"print({TUTORIAL_TEXT!r})\n" + startup_code
 
-    start_ipython(
-        argv=[
-            "--colors=Linux",
-            "--ext=cc_jupyter",
-            "--TerminalInteractiveShell.term_title=False",
-            "--TerminalInteractiveShell.prompts_class=IPython.terminal.prompts.ClassicPrompts",
-            "-c", startup_code,
-            "-i",
-        ],
-    )
+    # If user passes -c, pull it out and append after our setup
+    user_code = None
+    if ipython_args:
+        filtered = []
+        it = iter(ipython_args)
+        for arg in it:
+            if arg == "-c":
+                user_code = next(it, None)
+            else:
+                filtered.append(arg)
+        ipython_args = filtered
+
+    if user_code:
+        startup_code += f"\n{user_code}"
+
+    import base64 as _b64
+    encoded = _b64.b64encode(startup_code.encode()).decode()
+    exec_line = f"exec(__import__('base64').b64decode('{encoded}').decode())"
+
+    argv = [
+        "--colors=Linux",
+        "--TerminalInteractiveShell.term_title=False",
+        "--TerminalInteractiveShell.prompts_class=IPython.terminal.prompts.ClassicPrompts",
+        f"--InteractiveShellApp.exec_lines=[{exec_line!r}]",
+        "-i",
+    ]
+    if ipython_args:
+        argv.extend(ipython_args)
+
+    start_ipython(argv=argv)
 
 
 if __name__ == "__main__":
@@ -1894,8 +1961,11 @@ if __name__ == "__main__":
         tutorial: bool = False
         """Show the quick tutorial on startup."""
 
-    args = tyro.cli(Args)
+        sixel_scale: float = 0.75
+        """Max image height as fraction of terminal height (0.0–1.0). Images fill terminal width unless height would exceed this limit."""
+
+    args, extra = tyro.cli(Args, return_unknown_args=True)
     if args.test:
         _run_self_test()
     else:
-        _run_interactive_shell(tutorial=args.tutorial)
+        _run_interactive_shell(tutorial=args.tutorial, sixel_scale=args.sixel_scale, ipython_args=extra)
