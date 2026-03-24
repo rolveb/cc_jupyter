@@ -40,3 +40,11 @@ except Exception:
 Matplotlib works out of the box — sixel output in terminals with `img2sixel`:
 
 ![matplotlib sixel output](plt_example.png)
+
+## Self-test
+
+```bash
+./cc_jupyter.py --test
+```
+
+Runs built-in smoke tests (no pytest needed) covering CellWatcher, CellQueue, ConfigManager, prompt builder, and Claude CLI availability.
