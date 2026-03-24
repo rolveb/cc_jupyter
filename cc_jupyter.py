@@ -6,6 +6,7 @@
 #   "httpx",
 #   "ipython>=8.0.0",
 #   "matplotlib",
+#   "numpy",
 #   "pygments",
 #   "trio",
 #   "tyro>=0.9.0",
@@ -1901,33 +1902,290 @@ matplotlib.use("module://__main__")
 import matplotlib.pyplot as plt
 if not shutil.which("img2sixel"):
     print("WARNING: img2sixel not found — sudo apt install libsixel-bin")
-get_ipython().run_line_magic("load_ext", "cc_jupyter")
+
+def _sixel_post_execute():
+    if not matplotlib.is_interactive():
+        return
+    for manager in Gcf.get_all_fig_managers():
+        if manager.canvas.figure.stale:
+            buf = io.BytesIO()
+            manager.canvas.figure.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+            buf.seek(0)
+            rows, cols, xpix, ypix = _terminal_size()
+            if xpix == 0 or ypix == 0:
+                xpix, ypix = cols * 9, rows * 18
+            max_h = int(ypix * _SIXEL_SCALE)
+            fig_w, fig_h = manager.canvas.figure.get_size_inches()
+            aspect = fig_h / fig_w
+            scaled_h = int(xpix * aspect)
+            if scaled_h <= max_h:
+                cmd = ["img2sixel", "-w", str(xpix)]
+            else:
+                cmd = ["img2sixel", "-h", str(max_h)]
+            p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            p.communicate(input=buf.getvalue())
+            print(flush=True)
+            manager.canvas.figure.stale = False
+
+import atexit
+def _reset_terminal():
+    import subprocess
+    print("\\033[0m\\n", end="", flush=True)
+    subprocess.run(["stty", "sane"], stderr=subprocess.DEVNULL)
+atexit.register(_reset_terminal)
+
+_ip = get_ipython()
+_ip.events.register("post_execute", _sixel_post_execute)
+if "cc_jupyter" not in _ip.extension_manager.loaded:
+    _ip.run_line_magic("load_ext", "cc_jupyter")
+"""
+
+_STYLES_SETUP = """\
+import matplotlib.pyplot as plt
+import numpy
+from matplotlib.lines import Line2D
+from matplotlib.path import Path as MplPath
+import matplotlib.colors as mcolors
+from pathlib import Path
+
+_style_dir = Path(matplotlib.get_configdir()) / "stylelib"
+_style_dir.mkdir(parents=True, exist_ok=True)
+
+(_style_dir / "pretty_axes.mplstyle").write_text('''\\
+axes.linewidth: 2.0
+axes.edgecolor: 0.9
+xtick.major.width: 2.0
+ytick.major.width: 2.0
+xtick.minor.width: 1.5
+ytick.minor.width: 1.5
+xtick.major.size: 6
+ytick.major.size: 6
+lines.linewidth: 2.0
+axes.grid: True
+grid.alpha: 0.3
+grid.linewidth: 0.8
+legend.framealpha: 0.7
+legend.fancybox: True
+font.size: 12
+axes.titlesize: 14
+axes.labelsize: 12
+''')
+
+(_style_dir / "cyberpunk.mplstyle").write_text('''\\
+legend.frameon: False
+legend.numpoints: 1
+legend.scatterpoints: 1
+xtick.direction: out
+ytick.direction: out
+axes.axisbelow: True
+axes.grid: True
+font.family: sans-serif
+grid.linestyle: -
+lines.solid_capstyle: round
+axes.linewidth: 0
+xtick.major.size: 0
+ytick.major.size: 0
+xtick.minor.size: 0
+ytick.minor.size: 0
+axes.prop_cycle: cycler("color", ["08F7FE", "FE53BB", "F5D300", "00ff41", "r", "9467bd"])
+image.cmap: cool
+text.color: 0.9
+axes.labelcolor: 0.9
+xtick.color: 0.9
+ytick.color: 0.9
+figure.facecolor: 212946
+axes.facecolor: 212946
+savefig.facecolor: 212946
+grid.color: 2A3459
+''')
+
+(_style_dir / "cyberpunk_dark.mplstyle").write_text('''\\
+legend.frameon: False
+legend.numpoints: 1
+legend.scatterpoints: 1
+xtick.direction: out
+ytick.direction: out
+axes.axisbelow: True
+axes.grid: True
+font.family: sans-serif
+grid.linestyle: -
+lines.solid_capstyle: round
+axes.linewidth: 0
+xtick.major.size: 0
+ytick.major.size: 0
+xtick.minor.size: 0
+ytick.minor.size: 0
+axes.prop_cycle: cycler("color", ["08F7FE", "FE53BB", "F5D300", "00ff41", "r", "9467bd"])
+image.cmap: cool
+text.color: 0.9
+axes.labelcolor: 0.9
+xtick.color: 0.9
+ytick.color: 0.9
+figure.facecolor: black
+axes.facecolor: black
+savefig.facecolor: black
+grid.color: white
+grid.alpha: 0.15
+grid.linewidth: 0.5
+''')
+
+matplotlib.style.reload_library()
+
+# Parula colormap (MATLAB default) — 64 anchor colors
+_parula_data = [
+    [0.2422, 0.1504, 0.6603], [0.2504, 0.1650, 0.7076], [0.2578, 0.1818, 0.7511],
+    [0.2647, 0.1978, 0.7952], [0.2706, 0.2147, 0.8364], [0.2751, 0.2342, 0.8710],
+    [0.2783, 0.2559, 0.8991], [0.2803, 0.2782, 0.9221], [0.2813, 0.3006, 0.9414],
+    [0.2810, 0.3228, 0.9579], [0.2795, 0.3447, 0.9717], [0.2760, 0.3667, 0.9829],
+    [0.2699, 0.3892, 0.9906], [0.2602, 0.4123, 0.9952], [0.2440, 0.4358, 0.9988],
+    [0.2206, 0.4603, 0.9973], [0.1963, 0.4847, 0.9892], [0.1834, 0.5074, 0.9798],
+    [0.1786, 0.5289, 0.9682], [0.1764, 0.5499, 0.9520], [0.1687, 0.5703, 0.9327],
+    [0.1540, 0.5902, 0.9095], [0.1442, 0.6091, 0.8831], [0.1228, 0.6272, 0.8532],
+    [0.0952, 0.6441, 0.8186], [0.0689, 0.6600, 0.7809], [0.0297, 0.6743, 0.7380],
+    [0.0036, 0.6867, 0.6915], [0.0067, 0.6970, 0.6421], [0.0433, 0.7047, 0.5919],
+    [0.0964, 0.7094, 0.5428], [0.1408, 0.7119, 0.4919], [0.1717, 0.7126, 0.4431],
+    [0.1938, 0.7118, 0.3958], [0.2161, 0.7098, 0.3499], [0.2470, 0.7059, 0.3065],
+    [0.2906, 0.6997, 0.2702], [0.3406, 0.6893, 0.2428], [0.3909, 0.6780, 0.2187],
+    [0.4456, 0.6616, 0.1994], [0.5044, 0.6424, 0.1858], [0.5616, 0.6210, 0.1750],
+    [0.6174, 0.5971, 0.1654], [0.6720, 0.5709, 0.1554], [0.7242, 0.5435, 0.1459],
+    [0.7738, 0.5149, 0.1356], [0.8203, 0.4855, 0.1268], [0.8634, 0.4556, 0.1204],
+    [0.9035, 0.4252, 0.1141], [0.9393, 0.3951, 0.1101], [0.9728, 0.3660, 0.1309],
+    [0.9956, 0.3456, 0.1638], [0.9970, 0.3394, 0.1834], [0.9917, 0.3522, 0.1992],
+    [0.9876, 0.3676, 0.2148], [0.9856, 0.3831, 0.2312], [0.9836, 0.3995, 0.2468],
+    [0.9833, 0.4159, 0.2639], [0.9833, 0.4334, 0.2812], [0.9835, 0.4513, 0.2986],
+    [0.9840, 0.4700, 0.3168], [0.9852, 0.4889, 0.3351], [0.9866, 0.5088, 0.3536],
+    [0.9892, 0.5286, 0.3726],
+]
+import matplotlib.colors as _mcolors
+_parula_cmap = _mcolors.LinearSegmentedColormap.from_list("parula", _parula_data)
+matplotlib.colormaps.register(_parula_cmap)
+matplotlib.colormaps.register(_parula_cmap.reversed())
+
+# Glow effects (from mplcyberpunk by Dominik Haitz, MIT license)
+def make_lines_glow(ax=None, n_glow_lines=10, diff_linewidth=1.05, alpha_line=0.3, lines=None):
+    if not ax:
+        ax = plt.gca()
+    lines = ax.get_lines() if lines is None else lines
+    lines = [lines] if isinstance(lines, Line2D) else lines
+    alpha_value = alpha_line / n_glow_lines
+    for line in lines:
+        data = line.get_data(orig=False)
+        linewidth = line.get_linewidth()
+        try:
+            step_type = line.get_drawstyle().split("-")[1]
+        except Exception:
+            step_type = None
+        for n in range(1, n_glow_lines + 1):
+            if step_type:
+                (glow_line,) = ax.step(*data)
+            else:
+                (glow_line,) = ax.plot(*data)
+            glow_line.update_from(line)
+            glow_line.set_alpha(alpha_value)
+            glow_line.set_linewidth(linewidth + (diff_linewidth * n))
+            glow_line.is_glow_line = True
+
+def add_underglow(ax=None, alpha_underglow=0.1):
+    if not ax:
+        ax = plt.gca()
+    xlims, ylims = ax.get_xlim(), ax.get_ylim()
+    for line in ax.get_lines():
+        if getattr(line, "is_glow_line", False):
+            continue
+        x, y = line.get_data(orig=False)
+        color = line.get_c()
+        transform = line.get_transform()
+        try:
+            step_type = line.get_drawstyle().split("-")[1]
+        except Exception:
+            step_type = None
+        ax.fill_between(x=x, y1=y, y2=[0]*len(y), color=color, step=step_type, alpha=alpha_underglow, transform=transform)
+    ax.set(xlim=xlims, ylim=ylims)
+
+def add_gradient_fill(ax=None, alpha_gradientglow=1.0, gradient_start="min", N_sampling_points=50):
+    if not ax:
+        ax = plt.gca()
+    if isinstance(alpha_gradientglow, (int, float)):
+        alpha_gradientglow = (0.0, float(alpha_gradientglow))
+    xlims, ylims = ax.get_xlim(), ax.get_ylim()
+    for line in ax.get_lines():
+        if getattr(line, "is_glow_line", False):
+            continue
+        fill_color = line.get_color()
+        zorder = line.get_zorder()
+        alpha = line.get_alpha() or 1.0
+        rgb = mcolors.colorConverter.to_rgb(fill_color)
+        z = numpy.empty((N_sampling_points, 1, 4), dtype=float)
+        z[:, :, :3] = rgb
+        x, y = numpy.array(line.get_data(orig=False)[0]), numpy.array(line.get_data(orig=False)[1])
+        xmin, xmax, ymin, ymax = x.min(), x.max(), y.min(), y.max()
+        Ay = dict(min=ymin, max=ymax, top=ylims[1], bottom=ylims[0], zero=0)[gradient_start]
+        extent = [xmin, xmax, min(ymin, Ay), max(ymax, Ay)]
+        scaler = numpy.log if ax.get_yscale() == "log" else lambda v: v
+        a, b = alpha_gradientglow
+        ya, yb = extent[2], extent[3]
+        moment = lambda v: (scaler(v) - scaler(ya)) / (scaler(yb) - scaler(ya))
+        ys = numpy.linspace(ya, yb, N_sampling_points)
+        if gradient_start in ("min", "bottom"):
+            k = moment(ys)
+        elif gradient_start in ("top", "max"):
+            k = 1 - moment(ys)
+        else:
+            abs_ys = numpy.abs(ys)
+            k = abs_ys / numpy.max(abs_ys)
+        z[:, :, -1] = (k * b + (1 - k) * a)[:, None]
+        im = ax.imshow(z, aspect="auto", extent=extent, alpha=alpha, interpolation="bilinear", origin="lower", zorder=zorder)
+        path = line.get_path()
+        extras = MplPath([[xmax, Ay], [xmin, Ay]], numpy.full(2, MplPath.MOVETO))
+        extras.codes[:] = MplPath.LINETO
+        path = path.make_compound_path(path, extras)
+        im.set_clip_path(path, line._transform)
+    ax.set(xlim=xlims, ylim=ylims)
+
+def add_glow_effects(ax=None, gradient_fill=False):
+    make_lines_glow(ax=ax)
+    if gradient_fill:
+        add_gradient_fill(ax=ax)
+    else:
+        add_underglow(ax=ax)
+
+plt.style.use({styles})
 """
 
 
-def _run_interactive_shell(*, tutorial: bool = False, sixel_scale: float = 0.75, ipython_args: list[str] | None = None) -> None:
+def _run_interactive_shell(*, tutorial: bool = False, sixel_scale: float = 0.75, style: str = "", interactive: bool = True, ipython_args: list[str] | None = None) -> None:
     """Launch an interactive IPython shell with cc_jupyter loaded and colors enabled."""
     from IPython import start_ipython
 
     startup_code = _MATPLOTLIB_SIXEL_SETUP.replace("{sixel_scale}", str(sixel_scale))
+    if style:
+        styles_list = [s.strip() for s in style.split(",")]
+        startup_code += "\n" + _STYLES_SETUP.replace("{styles}", repr(styles_list))
     if tutorial:
         # Print tutorial before the matplotlib setup
         startup_code = f"print({TUTORIAL_TEXT!r})\n" + startup_code
 
     # If user passes -c, pull it out and append after our setup
     user_code = None
+    explicit_interactive = False
     if ipython_args:
         filtered = []
         it = iter(ipython_args)
         for arg in it:
             if arg == "-c":
                 user_code = next(it, None)
+            elif arg == "-i":
+                explicit_interactive = True
             else:
                 filtered.append(arg)
         ipython_args = filtered
 
     if user_code:
         startup_code += f"\n{user_code}"
+        if not explicit_interactive:
+            interactive = False
+    if not interactive:
+        startup_code += "\nimport os, subprocess; print('\\033[0m'); subprocess.run(['stty', 'sane']); os._exit(0)"
 
     import base64 as _b64
     encoded = _b64.b64encode(startup_code.encode()).decode()
@@ -1938,8 +2196,9 @@ def _run_interactive_shell(*, tutorial: bool = False, sixel_scale: float = 0.75,
         "--TerminalInteractiveShell.term_title=False",
         "--TerminalInteractiveShell.prompts_class=IPython.terminal.prompts.ClassicPrompts",
         f"--InteractiveShellApp.exec_lines=[{exec_line!r}]",
-        "-i",
     ]
+    if interactive:
+        argv.append("-i")
     if ipython_args:
         argv.extend(ipython_args)
 
@@ -1948,12 +2207,17 @@ def _run_interactive_shell(*, tutorial: bool = False, sixel_scale: float = 0.75,
 
 if __name__ == "__main__":
     import dataclasses
+    from typing import Literal
 
     import tyro
 
+    Cmap = Literal["parula", "jet", "viridis", "plasma", "inferno", "cool", "coolwarm", "spring", "winter", "tab20"]
+
     @dataclasses.dataclass
     class Args:
-        """cc_jupyter — Claude Code magic for IPython/Jupyter."""
+        """cc_jupyter — Claude Code magic for IPython/Jupyter.
+
+        Extra args are passed to IPython (e.g. -c 'code', -i for interactive)."""
 
         test: bool = False
         """Run the built-in smoke tests instead of launching the interactive shell."""
@@ -1964,8 +2228,94 @@ if __name__ == "__main__":
         sixel_scale: float = 0.75
         """Max image height as fraction of terminal height (0.0–1.0). Images fill terminal width unless height would exceed this limit."""
 
+        style: str = ""
+        """Comma-separated list of matplotlib styles to apply (e.g. 'cyberpunk_dark,pretty_axes')."""
+
+        demo: bool = False
+        """Run a demo showing cyberpunk glow effects with sixel output."""
+
+        cmap: Cmap = "parula"
+        """Colormap for the Lorenz attractor demo."""
+
     args, extra = tyro.cli(Args, return_unknown_args=True)
     if args.test:
         _run_self_test()
+    elif args.demo:
+        demo_style = args.style or "cyberpunk_dark,pretty_axes"
+        demo_box = (
+            "def _crt(title, lines):\n"
+            "    g = '\\033[92m'; b = '\\033[32m'; r = '\\033[0m'\n"
+            "    w = max(max(len(l) for l in lines), len(title) + 2)\n"
+            "    print(b + '\\u250c\\u2500 ' + title + ' ' + '\\u2500'*(w - len(title)) + '\\u2510' + r)\n"
+            "    for l in lines:\n"
+            "        print(b + '\\u2502' + g + ' ' + l.ljust(w + 2) + b + '\\u2502' + r)\n"
+            "    print(b + '\\u2514' + '\\u2500'*(w + 3) + '\\u2518' + r)\n"
+            "    print()\n"
+        )
+        demo_code = (
+            "import textwrap, numpy\n"
+            "from matplotlib.collections import LineCollection\n"
+            "from mpl_toolkits.axes_grid1 import make_axes_locatable\n"
+            "from scipy.integrate import solve_ivp\n"
+            "\n"
+            + demo_box +
+            "def _run(title, code):\n"
+            "    code = textwrap.dedent(code).strip()\n"
+            "    _crt(title, code.splitlines())\n"
+            "    exec(code, globals())\n"
+            "\n"
+            "_run('sin/cos + glow', '''\n"
+            "    x = numpy.linspace(0, 4*numpy.pi, 200)\n"
+            "    plt.plot(x, numpy.sin(x), label='sin')\n"
+            "    plt.plot(x, numpy.cos(x), label='cos')\n"
+            "    plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))\n"
+            "    make_lines_glow()\n"
+            "    plt.show()\n"
+            "''')\n"
+            "\n"
+            "_run('lorenz attractor', '''\n"
+            "    def lorenz(t, s, sigma=10, rho=28, beta=8/3):\n"
+            "        x, y, z = s\n"
+            "        return [sigma*(y - x), x*(rho - z) - y, x*y - beta*z]\n"
+            "\n"
+            "    sol = solve_ivp(lorenz, [0, 200], [1, 1, 1], dense_output=True)\n"
+            "    t = numpy.linspace(0, 200, 50000)\n"
+            "    x, y, z = sol.sol(t)\n"
+            "\n"
+            "    fig, ax = plt.subplots(figsize=(10, 6))\n"
+            "    pts = numpy.column_stack([x, z]).reshape(-1, 1, 2)\n"
+            "    segs = numpy.concatenate([pts[:-1], pts[1:]], axis=1)\n"
+            "\n"
+            "    lc = LineCollection(segs, cmap='{cmap}', norm=plt.Normalize(0, 200), alpha=0.9)\n"
+            "    lc.set_array(t[:-1])\n"
+            "    lc.set_linewidth(0.5)\n"
+            "    ax.add_collection(lc)\n"
+            "    ax.autoscale()\n"
+            "\n"
+            "    # soft underglow\n"
+            "    lc2 = LineCollection(segs, cmap='{cmap}', norm=plt.Normalize(0, 200), alpha=0.05)\n"
+            "    lc2.set_array(t[:-1])\n"
+            "    lc2.set_linewidth(4)\n"
+            "    ax.add_collection(lc2)\n"
+            "\n"
+            "    ax.set_xlabel('x')\n"
+            "    ax.set_ylabel('z', rotation=0, labelpad=10)\n"
+            "    ax.spines['top'].set_visible(False)\n"
+            "    ax.spines['right'].set_visible(False)\n"
+            "\n"
+            "    # thin colorbar\n"
+            "    div = make_axes_locatable(ax)\n"
+            "    cax = div.append_axes('right', size='2%', pad=0.05)\n"
+            "    cb = plt.colorbar(lc, cax=cax)\n"
+            "    cb.solids.set_alpha(0.5)\n"
+            "    cb.outline.set_visible(False)\n"
+            "    cax.set_yticks([])\n"
+            "    cax.set_ylabel('time \\u2191', fontsize=10, rotation=0, labelpad=10, va='top')\n"
+            "    plt.show()\n"
+            "''')\n"
+        )
+        demo_code = demo_code.replace("{cmap}", args.cmap)
+        extra = ["-c", demo_code] + (extra or [])
+        _run_interactive_shell(tutorial=False, sixel_scale=args.sixel_scale, style=demo_style, interactive=False, ipython_args=extra)
     else:
-        _run_interactive_shell(tutorial=args.tutorial, sixel_scale=args.sixel_scale, ipython_args=extra)
+        _run_interactive_shell(tutorial=args.tutorial, sixel_scale=args.sixel_scale, style=args.style, ipython_args=extra)
